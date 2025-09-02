@@ -10,6 +10,8 @@ its affiliates is strictly prohibited. -->
 
 # Deep Learning-Based Synchronization for Uplink NB-IoT
 
+[راهنمای فارسی (Persian README)](./README.fa.md)
+
 Implementation of the NPRACH detection algorithm from
 [[A]](https://arxiv.org/abs/2205.10805) using the
 [Sionna link-level simulator](https://nvlabs.github.io/sionna/).

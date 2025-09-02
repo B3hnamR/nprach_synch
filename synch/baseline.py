@@ -148,10 +148,14 @@ class NPRACHSynch(Layer):
         # [batch size, num preambles]
         toa_est = tf.cast(k_max, dtype=tf.float32)\
             /(tf.cast(self._fft_size, tf.float32)*config.delta_f_ra)
-        # Quadratic interpolation to improve precision
-        x_m = tf.gather(v_freq_abs, k_max - 1, batch_dims=2)
-        x_p = tf.gather(v_freq_abs, k_max + 1, batch_dims=2)
-        epsilon = 0.5*(x_p - x_m)/(2*x_max-x_m-x_p)
+        # Quadratic interpolation to improve precision (with boundary-safe indices)
+        k_m = tf.clip_by_value(k_max - 1, 0, self._fft_size - 1)
+        k_p = tf.clip_by_value(k_max + 1, 0, self._fft_size - 1)
+        x_m = tf.gather(v_freq_abs, k_m, batch_dims=2)
+        x_p = tf.gather(v_freq_abs, k_p, batch_dims=2)
+        den = 2.0*x_max - x_m - x_p
+        den = tf.where(tf.equal(den, 0.0), tf.constant(1e-6, den.dtype), den)
+        epsilon = 0.5*(x_p - x_m)/den
         toa_est = toa_est\
             + epsilon/(config.delta_f_ra*tf.cast(self._fft_size, tf.float32))
 

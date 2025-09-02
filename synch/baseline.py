@@ -246,7 +246,7 @@ class NPRACHSynch(Layer):
                                             self._fft_size - v_len],
                                             tf.complex64)], axis=-1)
             v_freq = tf.signal.fft(v_freq)\
-                /tf.complex(tf.constant(256, tf.float32), 0.0)
+                /tf.complex(tf.constant(self._fft_size, tf.float32), 0.0)
             v_freq_abs = tf.abs(v_freq)
             k_max = tf.argmax(v_freq_abs, axis=-1)
             x_max = tf.gather(v_freq_abs, k_max, batch_dims=2)

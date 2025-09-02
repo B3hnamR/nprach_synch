@@ -1,0 +1,15 @@
+# Pinned dependencies for stable execution (Python 3.8 recommended)
+# Note: These versions target TensorFlow 2.8 and a compatible Sionna release.
+# Prefer running on Linux/WSL2 (Ubuntu 20.04). On native Windows, use CPU-only TF.
+
+tensorflow==2.8.4
+sionna==0.14.0
+numpy==1.22.4
+scipy==1.8.1
+matplotlib==3.5.3
+jupyter==1.0.0
+ipympl==0.9.3
+# Ensure protobuf compatible with TF 2.8
+protobuf==3.20.3
+# For convenient weights download script
+gdown==4.7.1

@@ -35,9 +35,24 @@ power.
 
 ## Setup
 
-Running this code requires [Sionna](https://nvlabs.github.io/sionna/).
-To run the notebooks on your machine, you also need [Jupyter](https://jupyter.org).
-We recommend Ubuntu 20.04, Python 3.8, and TensorFlow 2.8.
+A pinned Python environment is provided for stability. We recommend Ubuntu 20.04 (or WSL2 on Windows), Python 3.8, and TensorFlow 2.8.
+
+1) Create and activate a virtual environment (Python 3.8):
+   - python3.8 -m venv .venv && source .venv/bin/activate  (Linux/WSL)
+   - py -3.8 -m venv .venv && .venv\\Scripts\\activate    (Windows PowerShell)
+
+2) Install dependencies (pinned):
+   - pip install --upgrade pip
+   - pip install -r requirements.txt
+
+3) Download deep model weights (optional, needed for Evaluate.ipynb):
+   - python scripts/download_weights.py
+     This downloads weights.dat into the project root.
+
+Notes:
+- XLA is disabled by default in the notebooks to avoid runtime errors on systems without XLA. You can re-enable jit_compile=True if you have a matching TF/XLA/CUDA stack.
+- On Windows, prefer WSL2. If using native Windows, use CPU-only TF 2.8 and keep XLA disabled.
+- If ipympl is not available, Evaluate.ipynb uses inline plotting.
 
 ## Structure of this repository
 

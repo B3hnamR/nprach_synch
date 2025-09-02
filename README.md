@@ -14,70 +14,170 @@ Implementation of the NPRACH detection algorithm from
 [[A]](https://arxiv.org/abs/2205.10805) using the
 [Sionna link-level simulator](https://nvlabs.github.io/sionna/).
 
-## Abstract
+This repository implements two synchronization methods for NB-IoT NPRACH:
+- A deep learning-based approach (DeepNSynch)
+- A strong analytical baseline (NPRACHSynch)
 
-We propose a neural network (NN)-based algorithm for device detection and time
-of arrival (ToA) and carrier frequency offset (CFO) estimation for the
-narrowband physical random-access channel (NPRACH) of narrowband internet of
-things (NB-IoT). The introduced NN architecture leverages residual convolutional
-networks as well as knowledge of the preamble structure of the 5G New Radio
-(5G NR) specifications. Benchmarking on a 3rd Generation Partnership Project
-(3GPP) urban microcell (UMi) channel model with random drops of users against a
-state-of-the-art baseline shows that the proposed method enables up to 8 dB
-gains in false negative rate (FNR) as well as significant gains in false
-positive rate (FPR) and ToA and CFO estimation accuracy. Moreover, our
-simulations indicate that the proposed algorithm enables gains over a wide range
-of channel conditions, CFOs, and transmission probabilities. The introduced
-synchronization method operates at the base station (BS) and, therefore,
-introduces no additional complexity on the user devices. It could lead to an
-extension of battery lifetime by reducing the preamble length or the transmit
-power.
+It also provides end-to-end simulation of NPRACH generation, channel modeling (3GPP UMi), and synchronization/evaluation.
 
-## Setup
+## Table of Contents
+- Overview
+- Features
+- Requirements
+- Quickstart
+- Runtime Auto-Configuration (new)
+- Project Structure
+- Notebooks: Train and Evaluate
+- CPU/GPU notes, XLA, and plotting
+- Smoke Test (baseline-only)
+- Troubleshooting
+- References
+- Credits and License
 
-A pinned Python environment is provided for stability. We recommend Ubuntu 20.04 (or WSL2 on Windows), Python 3.8, and TensorFlow 2.8.
+## Overview
+We propose a neural network (NN)-based algorithm for device detection and time of arrival (ToA) and carrier frequency offset (CFO) estimation for the narrowband physical random-access channel (NPRACH) of NB-IoT. The NN architecture leverages residual convolutional networks as well as knowledge of the preamble structure of the 5G NR specifications. The method is benchmarked against a strong analytical baseline.
 
+## Features
+- NPRACH waveform implementation (preamble configuration 0)
+- End-to-end simulation with 3GPP UMi channel (Sionna)
+- Two synchronization methods: deep learning and baseline
+- Reproducible environment via pinned requirements
+- New: Runtime auto-configuration that adapts execution to system capabilities (CPU-only vs GPU)
+
+## Requirements
+We recommend Ubuntu 20.04 (or WSL2 on Windows), Python 3.8, and TensorFlow 2.8.
+
+Pinned dependencies are provided in `requirements.txt` (Python 3.8 target):
+- tensorflow==2.8.4
+- sionna==0.14.0
+- numpy==1.22.4
+- scipy==1.8.1
+- matplotlib==3.5.3
+- jupyter==1.0.0
+- ipympl==0.9.3 (optional for interactive plots)
+- protobuf==3.20.3
+- gdown==4.7.1 (for weights download script)
+
+## Quickstart
 1) Create and activate a virtual environment (Python 3.8):
-   - python3.8 -m venv .venv && source .venv/bin/activate  (Linux/WSL)
-   - py -3.8 -m venv .venv && .venv\\Scripts\\activate    (Windows PowerShell)
+```
+# Linux/WSL
+python3.8 -m venv .venv && source .venv/bin/activate
 
-2) Install dependencies (pinned):
-   - pip install --upgrade pip
-   - pip install -r requirements.txt
+# Windows PowerShell
+py -3.8 -m venv .venv && .venv\Scripts\activate
+```
 
-3) Download deep model weights (optional, needed for Evaluate.ipynb):
-   - python scripts/download_weights.py
-     This downloads weights.dat into the project root.
+2) Install dependencies:
+```
+pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-Notes:
-- XLA is disabled by default in the notebooks to avoid runtime errors on systems without XLA. You can re-enable jit_compile=True if you have a matching TF/XLA/CUDA stack.
-- On Windows, prefer WSL2. If using native Windows, use CPU-only TF 2.8 and keep XLA disabled.
-- If ipympl is not available, Evaluate.ipynb uses inline plotting.
+3) (Optional, for DeepNSynch evaluation) Download model weights:
+```
+python scripts/download_weights.py
+# downloads weights.dat to the project root
+```
 
-## Structure of this repository
+4) Launch Jupyter:
+```
+jupyter notebook
+```
+Open `Evaluate.ipynb` or `Train.ipynb`.
 
-Two notebooks may serve as starting point:
+## Runtime Auto-Configuration (new)
+We added `runtime/auto_config.py` to detect system resources (GPU/CPU/RAM/OS) and recommend safe, efficient settings: batch sizes, mixed precision, TF threads, tf.data autotune, and plotting backend.
 
-* [Train.ipynb](Train.ipynb) : Implements the training loop of the deep learning-based synchronization algorithm.
-* [Evaluate.ipynb](Evaluate.ipynb) : Evaluates the trained deep learning-based synchronization algorithm and a baseline. This notebook reproduces the plots from the paper related to this repository [[A]](https://arxiv.org/abs/2205.10805).
+Paste at the top of your notebook:
+```
+from runtime.auto_config import get_system_profile, recommend_settings, apply_tf_settings, summarize
 
-These notebooks rely on the following modules:
+prof = get_system_profile()
+rec  = recommend_settings(prof, mode='eval')  # or 'train'
+apply_tf_settings(rec)
+print(summarize(prof, rec))
 
-* [nprach/](nprach/) : Implements the NPRACH waveform.
-* [synch/](synch/) : Implements two NPRACH synchronization algorithms, the deep learning-based one that we propose [[A]](https://arxiv.org/abs/2205.10805) and a strong baseline [[B]](https://ieeexplore.ieee.org/abstract/document/9263250/).
-* [e2e/](e2e/) : Implements a model for simulating the end-to-end system, which includes NPRACH waveform generation, 3GPP UMi channel model, and synchronization using the two available algorithms.
+# Optionally propagate suggested sizes and jit flag
+BATCH_SIZE_TRAIN = rec.batch_size_train
+BATCH_SIZE_EVAL  = rec.batch_size_eval
+USE_XLA = rec.jit_compile  # defaults False for broad compatibility
+```
+Bind your tf.function decorators to the recommended flag if desired:
+```
+@tf.function(jit_compile=USE_XLA)
+def sample_sys_snr(...):
+    ...
+```
+Heuristics:
+- GPU: mixed precision on, XLA off by default, batch sizes ~64, conservative threads
+- CPU-only / low-RAM: mixed precision off, XLA off, smaller batch sizes (4–16), conservative threads
+- tf.data: AUTOTUNE for map/parallels and prefetch
+- Matplotlib: inline backend to avoid hard dependency on ipympl
 
-In addition, the [parameters.py](parameters.py) file defines the key simulation parameters, and the results computed by the [Evaluate.ipynb](Evaluate.ipynb) notebook are available in the [results/](results/) directory.
-Moreover, the weights resulting from the training of the deep learning-based synchronization algorithm are available [here](https://drive.google.com/file/d/1qw8YG5RieJB7qf-Pj_FfqCLHdZtTXpFi/view?usp=sharing), which allows reproducing the results from [[A]](https://arxiv.org/abs/2205.10805) without retraining the neural network.
+## Project Structure
+- `nprach/`: NPRACH waveform implementation
+- `synch/`: Synchronization algorithms (DeepNSynch, NPRACHSynch)
+- `e2e/`: End-to-end system modeling (NPRACH generation, channel, synchronization)
+- `runtime/`: Runtime helpers
+  - `auto_config.py`: auto detection and recommended TF/runtime settings (new)
+- `parameters.py`: Global parameters (batch sizes, CFO ranges, etc.)
+- `results/`: Output artifacts created by Evaluate.ipynb
+- `Train.ipynb`: Training loop for DeepNSynch
+- `Evaluate.ipynb`: Benchmarks DeepNSynch vs baseline and reproduces paper plots
+- `scripts/download_weights.py`: Fetches DeepNSynch weights
+- `CHANGELOG.md`: All changes and rationales
+
+## Notebooks: Train and Evaluate
+- Training (`Train.ipynb`):
+  - Default `jit_compile=False` for portability; enable only if your TF/XLA/CUDA stack is compatible.
+  - Consider using `runtime/auto_config.py` to pick batch sizes and threads.
+- Evaluation (`Evaluate.ipynb`):
+  - You need `weights.dat` in project root to evaluate the deep model.
+  - Baseline can be evaluated without weights.
+  - Plotting uses inline backend by default; install `ipympl` if you want interactive widgets and switch back to `%matplotlib widget`.
+
+## CPU/GPU notes, XLA, and plotting
+- XLA is disabled by default in notebooks for maximum compatibility (Windows/CPU-only can fail with XLA).
+- On Windows, prefer WSL2 (Ubuntu 20.04). For native Windows, use TF 2.8 CPU-only and keep XLA disabled.
+- If `ipympl` is not installed, the notebooks use `%matplotlib inline`.
+
+To re-enable XLA in a compatible environment:
+```
+USE_XLA = True
+@tf.function(jit_compile=USE_XLA)
+def my_fn(...):
+    ...
+```
+
+## Smoke Test (baseline-only)
+You can quickly verify TF/Sionna compatibility without weights using the baseline path in `Evaluate.ipynb`:
+- Set system to baseline (`E2E('baseline', False, ...)`) with `pfa=0.999`
+- Use a small batch (`BATCH_SIZE_EVAL`) and `max_cfo_ppm=10., ue_prob=0.5`
+If there is a version mismatch or Sionna/TF setup issue, this test will fail early.
+
+## Troubleshooting
+- FileNotFoundError: `weights.dat`
+  - Run `python scripts/download_weights.py` and ensure `weights.dat` is in the repository root.
+- Sionna import or API errors
+  - Use the pinned `sionna==0.14.0` with `tensorflow==2.8.4` as specified.
+- XLA Unimplemented/Unsupported
+  - Keep `jit_compile=False` (default). XLA is optional and environment-dependent.
+- Matplotlib widget errors
+  - Install `ipympl` or keep `%matplotlib inline`.
+- GPU not detected
+  - Verify correct TF build, CUDA/cuDNN versions, and driver installation. Otherwise run in CPU mode with default settings.
 
 ## References
+[A] F. Aït Aoudia, J. Hoydis, S. Cammerer, M. Van Keirsbilck, and A. Keller, "Deep Learning-Based Synchronization for Uplink NB-IoT", 2022. https://arxiv.org/abs/2205.10805
 
-[A] [F. Aït Aoudia, J. Hoydis, S. Cammerer, M. Van Keirsbilck, and A. Keller, "Deep Learning-Based Synchronization for Uplink NB-IoT", 2022](https://arxiv.org/abs/2205.10805)
+[B] H. Chougrani, S. Kisseleff and S. Chatzinotas, "Efficient Preamble Detection and Time-of-Arrival Estimation for Single-Tone Frequency Hopping Random Access in NB-IoT," in IEEE IoT Journal, 8(9):7437-7449, 2021. https://ieeexplore.ieee.org/abstract/document/9263250/
 
-[B] [H. Chougrani, S. Kisseleff and S. Chatzinotas, "Efficient Preamble Detection and Time-of-Arrival Estimation for Single-Tone Frequency Hopping Random Access in NB-IoT," in IEEE Internet of Things Journal, vol. 8, no. 9, pp. 7437-7449, 1 May1, 2021, doi: 10.1109/JIOT.2020.3039004](https://ieeexplore.ieee.org/abstract/document/9263250/)
+## Credits
+- Project maintenance, updates, and documentation: Behnam
+- Original implementation and paper references as cited above
 
 ## License
-
-Copyright &copy; 2022, NVIDIA Corporation. All rights reserved.
+Copyright © 2022, NVIDIA Corporation. All rights reserved.
 
 This work is made available under the [Nvidia License](LICENSE.txt).

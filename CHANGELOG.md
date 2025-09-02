@@ -14,6 +14,54 @@
   - توضیح: اسکریپت ساده برای دانلود خودکار weights.dat به ریشه پروژه.
   - دلیل: Evaluate.ipynb بدون weights.dat اجرا نمی‌شود و FileNotFoundError می‌دهد؛ این اسکریپت فرآیند دانلود را ساده و قابل اتکا می‌کند.
 
+- runtime/auto_config.py
+  - توضیح: ماژول «پیکربندی خودکار زمان‌اجرا» که منابع سیستم (GPU/CPU/RAM/OS) را تشخیص داده و تنظیمات ایمن و کارا برای اجرای TensorFlow و کد پروژه پیشنهاد/اعمال می‌کند. هدف این است که روی طیف گسترده‌ای از ماشین‌ها (از CPU-only تا GPUهای قوی) بدون خطا و با بهره‌وری مناسب اجرا شود.
+  - قابلیت‌ها:
+    - تشخیص سیستم: GPUهای موجود (نام‌ها)، تعداد CPU، میزان RAM، سیستم‌عامل، نسخه TF (با psutil اختیاری و بهترین تلاش).
+    - توصیه تنظیمات: use_gpu، mixed_precision (روی GPU فعال)، jit_compile (پیش‌فرض غیرفعال برای سازگاری)، batch_size_train/eval (مطابق GPU/CPU/RAM)، inter_op_threads/intra_op_threads (براساس CPU)، موازی‌سازی/پریفچ tf.data با AUTOTUNE، و backend مناسب matplotlib (inline).
+    - اعمال تنظیمات: تنظیم تعداد threadهای TF، فعال‌سازی memory growth برای GPU، ست‌کردن mixed_float16 در صورت فعال بودن mixed precision.
+    - خروجی و خلاصه: تبدیل تنظیمات به dict و چاپ خلاصهٔ مشخصات سیستم + تنظیمات پیشنهادی با summarize().
+  - منطق تصمیم‌گیری (Heuristics):
+    - اگر GPU موجود باشد: mixed_precision=True، jit_compile=False (پیش‌فرض سازگار)، batch size ~64 برای train/eval (قابل تغییر)، threadها محافظه‌کارانه.
+    - اگر سیستم CPU-only یا RAM کم (<8GB) باشد: mixed_precision=False، jit_compile=False، batch size کوچک‌تر (مثلاً 4–16)، threadها محافظه‌کارانه.
+    - همیشه tf.data.AUTOTUNE برای parallel_calls و prefetch و ترجیح inline برای plotting جهت حذف وابستگی سخت به ipympl.
+  - نحوه استفاده (الگوی بالا-دستی):
+    - وارد کردن و گرفتن پروفایل + توصیه:
+      ```python
+      from runtime.auto_config import (
+          get_system_profile, recommend_settings, apply_tf_settings, summarize
+      )
+
+      prof = get_system_profile()
+      rec  = recommend_settings(prof, mode='eval')  # یا 'train'
+      apply_tf_settings(rec)
+      print(summarize(prof, rec))
+
+      # به‌صورت اختیاری: اعمال batch size پیشنهادی
+      BATCH_SIZE_TRAIN = rec.batch_size_train
+      BATCH_SIZE_EVAL  = rec.batch_size_eval
+
+      # به‌صورت اختیاری: استفاده از فلگ XLA پیشنهادشده
+      USE_XLA = rec.jit_compile
+      ```
+    - در نوت‌بوک‌ها: سلول ابتدایی را به این صورت اضافه کنید و jit_compile دکوراتورها را با USE_XLA گره بزنید:
+      ```python
+      @tf.function(jit_compile=USE_XLA)
+      def sample_sys_snr(...):
+          ...
+      ```
+  - نکات سازگاری:
+    - XLA در این ماژول به‌صورت پیش‌فرض فعال نمی‌شود تا روی سیستم‌های بدون XLA (Windows/CPU-only) خطا ندهد. کاربران در محیط‌های سازگار می‌توانند USE_XLA را True کنند.
+    - psutil اختیاری است؛ در صورت نبود، تشخیص RAM به‌صورت best-effort نادیده گرفته می‌شود.
+  - مزایا:
+    - پایداری بالا در سیستم‌های ضعیف و قابل‌اجرا بودن بدون خطا (عدم نیاز به XLA، کنترل batch size، threadها).
+    - بهره‌وری بهتر روی GPU (mixed precision، memory growth، AUTOTUNE).
+    - یک نقطهٔ واحد برای مشاهدهٔ توان سیستم و تنظیمات اعمال‌شده (summarize()).
+  - توسعه‌های آینده (پیشنهادی):
+    - پروفایل‌های از پیش‌تعریف‌شده مانند 'cpu_safe'، 'gpu_fast' یا تشخیص کلاس GPU برای مقیاس‌دهی پویا.
+    - پشتیبانی از ENV (مثلاً NPRACH_PROFILE=gpu_fast) برای override در اجرای headless.
+    - لاگ کردن تنظیمات اعمال‌شده در خروجی/فایل و ادغام با CLI (run_train.py/run_eval.py).
+
 ### Changed
 - README.md
   - توضیح: بخش Setup بازنویسی شد با مراحل مشخص ایجاد محیط مجازی Python 3.8، نصب وابستگی‌های پین‌شده، دانلود وزن‌ها، نکات ویندوز/WSL2، و توضیح غیرفعال‌سازی XLA.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate a valid weights.dat (pickle of Keras weights) for DeepNSynch without
-requiring Sionna/Scipy at generation time.
+requiring Sionna/Scipy/NumPy at generation time.
 
 This script:
 - Stubs a minimal `sionna` module if missing (utils.log10 and PI)
@@ -20,9 +20,9 @@ import os
 import sys
 import types
 import pickle
+import math
 from typing import Any
 
-import numpy as np
 import tensorflow as tf
 
 # 0) Make project root importable if script is run from elsewhere
@@ -43,7 +43,7 @@ except Exception:
         return tf.math.log(x) / tf.math.log(tf.constant(10.0, x.dtype))
     utils.log10 = _log10
     sn.utils = utils
-    sn.PI = np.pi
+    sn.PI = math.pi
     sys.modules["sionna"] = sn
 
 # 2) Dummy NPRACH generator with correct shapes for DeepNSynch
@@ -89,18 +89,18 @@ def _build_dummy_gen() -> _DummyGen:
     seq_indices = base + shifts[:, tf.newaxis]  # [20,48]
 
     # freq_patterns: [num_sc, num_sg] in [0, dft_size)
-    fp = np.zeros((cfg.nprach_num_sc, num_sg), dtype=np.int32)
-    for k in range(cfg.nprach_num_sc):
-        fp[k, :] = (k + np.arange(num_sg)) % cfg.nprach_dft_size
-    freq_patterns = tf.convert_to_tensor(fp, dtype=tf.int32)
+    num_sc = cfg.nprach_num_sc
+    dft = cfg.nprach_dft_size
+    k = tf.range(num_sc, dtype=tf.int32)[:, tf.newaxis]        # [48,1]
+    m = tf.range(num_sg, dtype=tf.int32)[tf.newaxis, :]        # [1,4]
+    freq_patterns = (k + m) % dft                              # [48,4]
 
     return _DummyGen(cfg, seq_indices, freq_patterns)
 
 
 def main() -> int:
-    # Set deterministic seeds for reproducibility of initial weights
+    # Set deterministic seed for reproducibility of initial weights
     tf.random.set_seed(42)
-    np.random.seed(42)
 
     dummy = _build_dummy_gen()
 

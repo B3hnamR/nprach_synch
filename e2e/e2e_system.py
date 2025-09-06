@@ -303,6 +303,7 @@ class E2E(Model):
                 tf.square((toa-toa_est)/self.config.nprach_cp_duration), 0.0)
             # CFO NMSE (dimensionally correct): convert to Hz then normalize by bandwidth
             f_off_norm = self.cfo.ppm2Foffnorm(cfo_ppm)
+            f_off = f_off_norm
             f_off_hz   = f_off_norm * SAMPLING_FREQUENCY
             f_est_hz   = f_off_est   * SAMPLING_FREQUENCY
             f_off_err  = tf.where(tx_ue,

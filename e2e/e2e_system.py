@@ -16,8 +16,6 @@ This model is used for both training and evaluation.
 """
 
 
-import sys
-sys.path.append('..')
 import tensorflow as tf
 import sionna as sn
 from tensorflow.keras import Model
@@ -303,10 +301,12 @@ class E2E(Model):
             # ToA NMSE
             toa_err = tf.where(tx_ue,
                 tf.square((toa-toa_est)/self.config.nprach_cp_duration), 0.0)
-            # CFO NMSE
-            f_off = self.cfo.ppm2Foffnorm(cfo_ppm)
-            f_off_err = tf.where(tx_ue,
-                        tf.square((f_off-f_off_est)/self.config.bandwidth), 0.0)
+            # CFO NMSE (dimensionally correct): convert to Hz then normalize by bandwidth
+            f_off_norm = self.cfo.ppm2Foffnorm(cfo_ppm)
+            f_off_hz   = f_off_norm * SAMPLING_FREQUENCY
+            f_est_hz   = f_off_est   * SAMPLING_FREQUENCY
+            f_off_err  = tf.where(tx_ue,
+                        tf.square((f_off_hz - f_est_hz)/self.config.bandwidth), 0.0)
             # Compute the snr
             freq = sn.channel.subcarrier_frequencies(
                         self.config.nprach_dft_size, self.config.delta_f_ra)

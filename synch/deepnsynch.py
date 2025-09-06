@@ -86,6 +86,7 @@ class ResnetBlock(Layer):
         z = relu(z)
         z = self._conv_2(z)
 
+        tf.debugging.assert_equal(tf.shape(inp)[-1], self._num_kernels, message="ResnetBlock: channel mismatch for residual addition")
         z = z + inp
         return z
 
@@ -202,15 +203,15 @@ class DeepNSynch(Layer):
         y_seq = tf.gather(y, self._nprach_gen.seq_indices, axis=1)
         # Unitary DFT
         # [batch_size, num of seq, dft size]
-        y_seq_freq = tf.signal.fft(y_seq)\
-            /tf.complex(tf.cast(config.nprach_dft_size, tf.float32), 0.0)
+        dft_size_c = tf.complex(tf.cast(config.nprach_dft_size, tf.float32), 0.0)
+        y_seq_freq = tf.signal.fft(y_seq)/dft_size_c
 
         ################################################################
         # Combining over sequences by averaging
         ################################################################
         # [batch size, number of sg, dft size]
         z = tf.reshape(y_seq_freq, [batch_size, num_sg,
-                                config.nprach_seq_per_sg, config.nprach_num_sc])
+                                config.nprach_seq_per_sg, nprach_dft_size])
         z = tf.reduce_mean(z, axis=2)
 
         ################################################################
@@ -231,6 +232,7 @@ class DeepNSynch(Layer):
         # [batch_size, num preamble, 1, 1]
         energy = tf.reduce_mean(tf.square(z), axis=(2,3), keepdims=True)
         # [batch_size, num preamble, number of sg, 2]
+        z = z + tf.cast(1e-7, z.dtype)
         z = self._input_norm(z)
 
         #############################################################
@@ -238,7 +240,8 @@ class DeepNSynch(Layer):
         #############################################################
         # [batch_size, num preamble, number of sg, 3]
         energy = tf.tile(energy, [1, 1, num_sg, 1])
-        z = tf.concat([z, sn.utils.log10(energy)], axis=-1)
+        eps = tf.cast(1e-12, z.dtype)
+        z = tf.concat([z, sn.utils.log10(energy + eps)], axis=-1)
 
         #############################################################
         # Scattering the normalized REs back to the RG

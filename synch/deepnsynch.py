@@ -259,13 +259,14 @@ class DeepNSynch(Layer):
         z_a = self._act_rnb_rg_1(z_a)
         z_a = self._act_rnb_rg_2(z_a)
         z_a = self._act_rnb_rg_3(z_a)
-        z_a = tf.reshape(z_a, [batch_size, num_sg, nprach_dft_size,
-                            tf.shape(z_a)[-1]])
+        channels = 128
+        z_a = tf.reshape(z_a, [batch_size, num_sg, nprach_dft_size, channels])
         # Extracting REs according to hop pattern
         # [batch_size, num preamble, number of sg, dim]
         z_a = self._extract_preamble_seq(z_a, self._nprach_gen.freq_patterns)
         # [batch_size, num preamble]
-        z_a = tf.reshape(z_a, [batch_size, config.nprach_num_sc, -1])
+        flat_dim = self._config.nprach_sg_per_rep*self._config.nprach_num_rep*channels
+        z_a = tf.reshape(z_a, [batch_size, config.nprach_num_sc, flat_dim])
         z_a = self._dense_act_1(z_a)
         z_a = self._dense_act_2(z_a)
         z_a = self._dense_act_3(z_a)
@@ -281,14 +282,15 @@ class DeepNSynch(Layer):
         p = self._est_rnb_rg_1(p)
         p = self._est_rnb_rg_2(p)
         p = self._est_rnb_rg_3(p)
-        p = tf.reshape(p, [batch_size, num_sg, nprach_dft_size,
-                        tf.shape(p)[-1]])
+        channels = 128
+        p = tf.reshape(p, [batch_size, num_sg, nprach_dft_size, channels])
         # Extracting REs according to hop pattern
         # [batch_size, num preamble, number of sg, dim]
         p = self._extract_preamble_seq(p, self._nprach_gen.freq_patterns)
         # ToA
         z_toa = p
-        z_toa = tf.reshape(z_toa, [batch_size, config.nprach_num_sc, -1])
+        flat_dim = self._config.nprach_sg_per_rep*self._config.nprach_num_rep*channels
+        z_toa = tf.reshape(z_toa, [batch_size, config.nprach_num_sc, flat_dim])
         z_toa = self._dense_toa_1(z_toa)
         z_toa = self._dense_toa_2(z_toa)
         z_toa = self._dense_toa_3(z_toa)
@@ -296,7 +298,8 @@ class DeepNSynch(Layer):
         z_toa = z_toa[...,0]
         # CFO
         z_cfo = p
-        z_cfo = tf.reshape(z_cfo, [batch_size, config.nprach_num_sc, -1])
+        flat_dim = self._config.nprach_sg_per_rep*self._config.nprach_num_rep*channels
+        z_cfo = tf.reshape(z_cfo, [batch_size, config.nprach_num_sc, flat_dim])
         z_cfo = self._dense_cfo_1(z_cfo)
         z_cfo = self._dense_cfo_2(z_cfo)
         z_cfo = self._dense_cfo_3(z_cfo)

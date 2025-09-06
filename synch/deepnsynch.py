@@ -63,6 +63,18 @@ class ResnetBlock(Layer):
         self._conv_2 = SeparableConv1D(num_kernels, kernel_size, padding='same')
 
     def call(self, inp):
+        """Apply two separable conv layers with pre-norm and residual skip.
+
+        Input
+        ------
+        inp : [..., s, n], tf.float
+            Input sequence batch.
+
+        Output
+        -------
+        : [..., s, num_kernels], tf.float
+            Transformed sequence.
+        """
 
         z = inp
 
@@ -112,6 +124,13 @@ class DeepNSynch(Layer):
     """
 
     def __init__(self, nprach_gen):
+        """Construct the DeepNSynch model blocks.
+
+        Parameters
+        ----------
+        nprach_gen : NPRACH
+            NPRACH generator providing sequence indices and hop patterns.
+        """
         super().__init__()
 
         self._nprach_gen = nprach_gen
@@ -152,6 +171,22 @@ class DeepNSynch(Layer):
         self._dense_cfo_4 = Dense(1, activation=None)
 
     def call(self, inputs):
+        """Forward pass: build resource grid and predict detection, ToA, CFO.
+
+        Input
+        ------
+        inputs : [batch size, number of time steps], tf.complex
+            Received samples.
+
+        Output
+        -------
+        z_a : [batch size, max number of preambles], tf.float
+            Detection logits per preamble.
+        z_toa : [batch size, max number of preambles], tf.float
+            ToA estimates per preamble.
+        z_cfo : [batch size, max number of preambles], tf.float
+            CFO estimates per preamble.
+        """
 
         y = inputs
         batch_size = tf.shape(y)[0]
@@ -269,24 +304,19 @@ class DeepNSynch(Layer):
 
     def _extract_preamble_seq(self, y, indices):
         # pylint: disable=line-too-long
-        """
-        Extract from `y` and for every possible preamble the sequence of REs
-        following the pattern defined by `indices`.
+        """Gather REs along per-preamble hop patterns from the resource grid.
 
         Input
         -----
         y : [batch_size, num_sg, dft size, dim], tf.complex or tf.float
             Received resource grid.
-
         indices : [num preambles, num_sg], tf.int
-            For every possible preamble, the sequence of subcarrier indices
-            for the corresponding sequence of SGs.
+            Subcarrier indices per SG for each preamble.
 
         Output
         -------
-        y_pr : [batch_size, num preamble, num_sg, dim], tf.complex
-            For every possible preamble, the corresponding received
-            sequence of SGs.
+        y_pr : [batch_size, num preamble, num_sg, dim], tf.complex or tf.float
+            Sequence of REs per preamble and SG.
         """
         # Expand to sequences
         indices = tf.transpose(indices)
@@ -297,24 +327,19 @@ class DeepNSynch(Layer):
 
     def _preamble_seq_to_rg(self, y_pr, indices):
         # pylint: disable=line-too-long
-        """
-        Extract from `y` and for every possible preamble the sequence of REs
-        following the pattern defined by `indices`.
+        """Scatter per-preamble sequences back into a dense resource grid.
 
         Input
         -----
-        y_pr : [batch_size, num preamble, num_sg, dim], tf.complex
-            For every possible preamble, the corresponding received
-            sequence of SGs.
-
+        y_pr : [batch_size, num preamble, num_sg, dim], tf.complex or tf.float
+            Sequence of REs per preamble and SG.
         indices : [num preambles, num_sg], tf.int
-            For every possible preamble, the sequence of subcarrier
-            indices for the corresponding sequence of SGs.
+            Subcarrier indices per SG for each preamble.
 
         Output
         -------
         y : [batch_size, num_sg, dft size, dim], tf.complex or tf.float
-            Resource grid.
+            Dense resource grid with non-hopped positions filled.
         """
         # Expand to sequences
         num_sg = tf.shape(indices)[1]

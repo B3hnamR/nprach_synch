@@ -70,6 +70,19 @@ class NPRACHSynch(Layer):
     """
 
     def __init__(self, nprach_gen, fft_size, pfa, no):
+        """Initialize detector and pre-compute detection thresholds.
+
+        Parameters
+        ----------
+        nprach_gen : NPRACH
+            NPRACH generator providing hop patterns and sequence indices.
+        fft_size : int
+            FFT size used for detection (in frequency-domain combining).
+        pfa : float
+            Target probability of false alarm for threshold design.
+        no : float
+            Noise power spectral density.
+        """
         super().__init__()
 
         self._nprach_gen = nprach_gen
@@ -79,6 +92,22 @@ class NPRACHSynch(Layer):
         self._build_detection_threshold(pfa, no)
 
     def call(self, y):
+        """Run baseline NPRACH detection, ToA and CFO estimation.
+
+        Input
+        ------
+        y : [batch size, number of time steps], tf.complex
+            Received complex baseband samples.
+
+        Output
+        -------
+        tx_ue_hat : [batch size, max number of preambles], tf.bool
+            Hard detection decisions per preamble.
+        toa_est : [batch size, max number of preambles], tf.float
+            Estimated time of arrival per preamble.
+        f_off_est : [batch size, max number of preambles], tf.float
+            Estimated normalized frequency offset per preamble.
+        """
 
         batch_size = tf.shape(y)[0]
         config = self._config
@@ -191,16 +220,19 @@ class NPRACHSynch(Layer):
 
     def _build_detection_threshold(self, pfa, no):
         # pylint: disable=line-too-long
-        """Builds the detection threshold value for a given noise power spectral
-        density ``no`` and target probability of false positive ``pfa``.
+        """Empirically derive detection thresholds under noise-only hypothesis.
 
         Parameters
         ----------
         pfa : float
             Target probability of false positive. Must be in (0,1).
-
         no : float
             Noise power spectral density.
+
+        Notes
+        -----
+        The statistic Xmax is simulated from pure noise for each preamble and
+        its pfa-quantile is taken as threshold.
         """
         batch_size = 10000
         num_it = 10
@@ -262,24 +294,19 @@ class NPRACHSynch(Layer):
 
     def _extract_preamble_sg(self, y, indices):
         # pylint: disable=line-too-long
-        """Extract from ``y`` and for every possible preamble the sequence of
-        SGs following the pattern defined by `indices`.
+        """Gather SGs following per-preamble hop patterns.
 
         Input
         -----
         y : [batch_size, num_sg, dft size], tf.complex
-            Received resource grid of SGs.
-            The sequences froming a same SG are assumed to be already combined.
-
+            Resource grid with sequences already combined within each SG.
         indices : [num preambles, num_sg], tf.int
-            For every possible preamble, the sequence of subcarrier indices
-            for the corresponding sequence of SGs.
+            Subcarrier indices per SG for each candidate preamble.
 
         Output
         -------
         y_pr : [batch_size, num preamble, num_sg], tf.complex
-            For every possible preamble, the corresponding received sequence
-            of SGs.
+            Sequence of SGs arranged per preamble.
         """
         y = tf.transpose(y, [1, 2, 0])
         indices = tf.transpose(indices)

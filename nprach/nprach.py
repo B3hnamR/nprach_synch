@@ -169,6 +169,18 @@ class GoldSequence:
         self._state_x2 = state_x2
 
     def __call__(self, length):
+        """Generate next chunk of the Gold sequence.
+
+        Input
+        ------
+        length : int
+            Length of the binary sequence to generate.
+
+        Output
+        -------
+        seq : np.array
+            Binary array of size `length`.
+        """
         x1, state_x1 = scipy.signal.max_len_seq(31, self._state_x1,
                                                     length, [0, 3, 31])
         x2, state_x2 = scipy.signal.max_len_seq(31, self._state_x2,
@@ -266,6 +278,20 @@ class NPRACHPattern:
         return n_ra_sc_tilde
 
     def __call__(self, n_init):
+        """Build frequency hopping pattern for a given initial subcarrier.
+
+        Input
+        ------
+        n_init : int
+            Initial subcarrier index.
+
+        Output
+        -------
+        freq_pattern : [number of SG], int
+            Subcarrier index for all SGs.
+        freq_hops : [number of SG - 1], int
+            Hopping steps between consecutive SGs.
+        """
 
         ###################################
         # Reset internal state
@@ -337,6 +363,7 @@ class NPRACH(Layer):
 
     @property
     def config(self):
+        """NPRACH configuration."""
         return self._config
 
     @property
@@ -364,13 +391,27 @@ class NPRACH(Layer):
 
     @property
     def freq_patterns(self):
+        """[num preambles, num_sg] of subcarrier indices per SG for each preamble."""
         return self._freq_patterns
 
     @property
     def freq_hop_steps(self):
+        """[num preambles, num_sg - 1] hop steps between consecutive SGs for each preamble."""
         return self._freq_hops
 
     def call(self, tx_power):
+        """Generate NPRACH waveform.
+
+        Input
+        ------
+        tx_power : [batch_size, max number of users], tf.float
+            Per-user transmit powers. Set to 0 for inactive users.
+
+        Output
+        -------
+        : [batch_size, num_time_samples, max number of users], tf.complex
+            Time-domain NPRACH samples.
+        """
 
         batch_size = tf.shape(tx_power)[0]
 

@@ -22,7 +22,17 @@ from tensorflow.keras import Model
 from . import CFO
 from nprach import NPRACHConfig, NPRACH
 from synch import DeepNSynch, NPRACHSynch
-from parameters import *
+
+# Robust import of project-level parameters whether or not the CWD is project root
+try:
+    from parameters import *  # type: ignore
+except ModuleNotFoundError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _root = str(_Path(__file__).resolve().parents[1])
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    from parameters import *  # type: ignore
 
 
 class E2E(Model):

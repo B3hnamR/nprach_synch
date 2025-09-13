@@ -169,3 +169,165 @@ def my_fn(...):
 © 2022, NVIDIA Corporation. تمامی حقوق محفوظ است.
 
 این کار تحت [مجوز Nvidia](./LICENSE.txt) منتشر شده است.
+# همگام‌سازی مبتنی بر یادگیری عمیق برای پیوند بالای NB‑IoT (NPRACH)
+
+[English README](./README.md)
+
+این مخزن پیاده‌سازی دو روش همگام‌سازی برای کانال تصادمی باریک‌باند (NPRACH) در NB‑IoT را ارائه می‌کند:
+- DeepNSynch (یادگیری عمیق)
+- NPRACHSynch (روش تحلیلی مبنا)
+
+همچنین شبیه‌سازی انتها‑به‑انتها شامل تولید موج NPRACH، مدل کانال 3GPP UMi (با Sionna)، و ارزیابی/رسم نتایج را فراهم می‌کند.
+
+## فهرست
+- مرور کلی
+- ویژگی‌ها
+- پیش‌نیازها
+- شروع سریع
+- پیکربندی خودکار اجرا (جدید)
+- ساختار پروژه
+- نوت‌بوک‌ها: آموزش و ارزیابی
+- نکات CPU/GPU، XLA و رسم
+- آزمون دود (فقط مبنا)
+- عیب‌یابی
+- منابع
+- اعتبار و مجوز
+
+## مرور کلی
+یک الگوریتم مبتنی بر شبکه عصبی برای تشخیص دستگاه و برآورد زمان‌رسیدن (ToA) و انحراف فرکانس حامل (CFO) برای NPRACH ارائه می‌کنیم. معماری NN از ResNet و دانش ساختار پیش‌کلام استفاده می‌کند و با یک روش تحلیلی قوی مقایسه می‌شود.
+
+## ویژگی‌ها
+- پیاده‌سازی موج NPRACH (پیکربندی پیش‌کلام 0)
+- شبیه‌سازی انتها‑به‑انتها با کانال UMi (Sionna)
+- دو روش همگام‌سازی: یادگیری عمیق و مبنا
+- محیط قابل بازتولید با وابستگی‌های پین‌شده
+- جدید: پیکربندی خودکار اجرا (batch، mixed precision، نخ‌های TF، AUTOTUNE)
+
+## پیش‌نیازها
+پیشنهاد می‌شود از Ubuntu 20.04 (یا WSL2 در ویندوز)، Python 3.8 و TensorFlow 2.8 استفاده کنید.
+
+نسخه‌های پین‌شده در `requirements.txt` (برای Python 3.8) آمده‌اند:
+- tensorflow==2.8.4
+- sionna==0.13.0
+- numpy==1.22.4
+- scipy==1.8.1
+- matplotlib==3.5.3
+- jupyter==1.0.0
+- ipympl==0.9.3 (اختیاری برای نمودار تعاملی)
+- protobuf==3.19.6
+- gdown==4.7.1 (اختیاری؛ در صورت تولید محلی وزن‌ها لازم نیست)
+
+## شروع سریع
+1) ساخت و فعال‌سازی محیط مجازی (Python 3.8):
+```
+# Linux/WSL
+python3.8 -m venv .venv && source .venv/bin/activate
+
+# Windows PowerShell
+py -3.8 -m venv .venv && .venv\Scripts\activate
+```
+
+2) نصب وابستگی‌ها:
+```
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+3) (اختیاری، برای DeepNSynch) آماده‌سازی وزن‌ها:
+```
+# گزینه A: فایل وزن خود را در ریشه پروژه با نام weights.dat قرار دهید
+# گزینه B: وزن‌های سازگار از نظر شکل را محلی بسازید و تأیید کنید
+python scripts/generate_weights.py
+python scripts/verify_weights.py weights.dat
+```
+
+4) اجرای Jupyter:
+```
+jupyter notebook
+```
+نوت‌بوک‌های `Evaluate.ipynb` یا `Train.ipynb` را باز کنید.
+
+## پیکربندی خودکار اجرا (جدید)
+فایل `runtime/auto_config.py` منابع سیستم (GPU/CPU/RAM/OS) را تشخیص می‌دهد و تنظیمات امن/کارا پیشنهاد می‌دهد: اندازه batch، mixed precision، نخ‌های TF، AUTOTUNE برای tf.data و backend رسم.
+
+در ابتدای نوت‌بوک اضافه کنید:
+```
+from runtime.auto_config import get_system_profile, recommend_settings, apply_tf_settings, summarize
+
+prof = get_system_profile()
+rec  = recommend_settings(prof, mode='eval')  # یا 'train'
+apply_tf_settings(rec)
+print(summarize(prof, rec))
+
+BATCH_SIZE_TRAIN = rec.batch_size_train
+BATCH_SIZE_EVAL  = rec.batch_size_eval
+USE_XLA = rec.jit_compile  # پیش‌فرض False برای سازگاری بیشتر
+```
+در صورت نیاز:
+```
+@tf.function(jit_compile=USE_XLA)
+def sample_fn(...):
+    ...
+```
+
+## ساختار پروژه
+- `nprach/`: پیاده‌سازی موج NPRACH
+- `synch/`: الگوریتم‌های همگام‌سازی (DeepNSynch, NPRACHSynch)
+- `e2e/`: شبیه‌سازی انتها‑به‑انتها (تولید، کانال، همگام‌سازی)
+- `runtime/`: ابزارهای زمان اجرا
+  - `auto_config.py`: تشخیص/توصیه تنظیمات اجرا
+- `parameters.py`: پارامترهای کلی (batch، بازه CFO، …)
+- `results/`: خروجی‌های تولیدشده توسط Evaluate.ipynb
+- `Train.ipynb`: آموزش DeepNSynch
+- `Evaluate.ipynb`: مقایسه DeepNSynch و مبنا و بازتولید نمودارها
+- `scripts/`: ابزار وزن‌ها
+  - `generate_weights.py`: ساخت وزن‌ها در فرمت‌های `.dat/.npz/.h5`
+  - `verify_weights.py`: بارگذاری وزن‌ها و اجرای forward آزمایشی
+  - `train_deepnsynch.py`: warm‑build و ذخیره وزن‌ها (قابل توسعه برای آموزش واقعی)
+
+## نوت‌بوک‌ها: آموزش و ارزیابی
+- آموزش (`Train.ipynb`):
+  - `jit_compile=False` برای پایداری؛ فقط در صورت سازگاری TF/XLA/CUDA فعال کنید.
+  - از `runtime/auto_config.py` برای انتخاب batch و نخ‌ها استفاده کنید.
+- ارزیابی (`Evaluate.ipynb`):
+  - برای ارزیابی مدل عمیق، `weights.dat` را در ریشه پروژه قرار دهید (یا محلی بسازید).
+  - روش مبنا بدون وزن هم اجرا می‌شود.
+  - رسم به‌صورت inline است؛ برای ابزارهای تعاملی `ipympl` نصب و `%matplotlib widget` استفاده کنید.
+
+## نکات CPU/GPU، XLA و رسم
+- XLA به‌صورت پیش‌فرض غیرفعال است تا سازگاری حداکثری داشته باشد (در ویندوز/CPU‑only ممکن است خطا دهد).
+- در ویندوز، WSL2 (اوبونتو 20.04) پیشنهاد می‌شود؛ در ویندوز بومی از TF 2.8 نسخه CPU‑only و XLA خاموش استفاده کنید.
+- در نبود `ipympl` از `%matplotlib inline` استفاده می‌شود.
+
+## آزمون دود (فقط مبنا)
+برای آزمون سریع سازگاری TF/Sionna بدون وزن‌ها از مسیر مبنا در `Evaluate.ipynb` استفاده کنید، یا کد زیر را اجرا کنید:
+```
+from e2e import E2E
+BATCH=16
+sys = E2E('baseline', False, nprach_num_rep=1, nprach_num_sc=24, fft_size=256, pfa=0.999)
+out = sys(BATCH, max_cfo_ppm=10., ue_prob=0.5)
+print('OK:', len(out))
+```
+
+## عیب‌یابی
+- FileNotFoundError: `weights.dat`
+  - وزن‌های خود را در ریشه قرار دهید یا `python scripts/generate_weights.py` اجرا و سپس با `python scripts/verify_weights.py weights.dat` صحت‌سنجی کنید.
+- خطای وارد کردن Sionna یا ناسازگاری API
+  - از نسخه‌های پین‌شده `sionna==0.13.0` و `tensorflow==2.8.4` استفاده کنید.
+- خطاهای XLA (Unsupported/Unimplemented)
+  - `jit_compile=False` را نگه دارید (پیش‌فرض).
+- خطای matplotlib widget
+  - `ipympl` را نصب کنید یا روی `%matplotlib inline` بمانید.
+- عدم شناسایی GPU
+  - نصب درست TF/CUDA/cuDNN/Driver را بررسی کنید؛ در غیر این‌صورت در حالت CPU اجرا کنید.
+
+## منابع
+[A] F. Aoudia, J. Hoydis, S. Cammerer, M. Van Keirsbilck, and A. Keller, "Deep Learning‑Based Synchronization for Uplink NB‑IoT", 2022. https://arxiv.org/abs/2205.10805
+
+[B] H. Chougrani, S. Kisseleff and S. Chatzinotas, "Efficient Preamble Detection and Time‑of‑Arrival Estimation for Single‑Tone Frequency Hopping Random Access in NB‑IoT," IEEE IoT Journal, 8(9):7437‑7449, 2021. https://ieeexplore.ieee.org/abstract/document/9263250/
+
+## اعتبار و مجوز
+- نگه‌داری پروژه، به‌روزرسانی‌ها و مستندسازی: Behnam
+- پیاده‌سازی اصلی و مراجع در بالا آمده است.
+
+این کار تحت [مجوز Nvidia](LICENSE.txt) منتشر می‌شود.

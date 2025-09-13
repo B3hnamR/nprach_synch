@@ -56,9 +56,10 @@ git push origin main
 
 Weights (DL)
 ```
-# If link works (may return 403):
-python scripts/download_weights.py
-# Otherwise: train locally with Train.ipynb to generate weights.dat
+# Option A: Place your own weights at project root as weights.dat
+# Option B: Generate/verify shape‑compatible weights locally
+python scripts/generate_weights.py
+python scripts/verify_weights.py weights.dat
 ```
 
 Notebook prologue (recommended)

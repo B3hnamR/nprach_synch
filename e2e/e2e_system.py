@@ -299,15 +299,27 @@ class E2E(Model):
             fpr = tf.where(tf.logical_not(tx_ue), tx_ue_hat_float, -1.0) # FPR
             fnr =  tf.where(tx_ue, 1.0-tx_ue_hat_float, -1.0) # FNR
             # ToA NMSE
-            toa_err = tf.where(tx_ue,
-                tf.square((toa-toa_est)/self.config.nprach_cp_duration), 0.0)
-            # CFO NMSE (dimensionally correct): convert to Hz then normalize by bandwidth
-            f_off_norm = self.cfo.ppm2Foffnorm(cfo_ppm)
-            f_off = f_off_norm
-            f_off_hz   = f_off_norm * SAMPLING_FREQUENCY
-            f_est_hz   = f_off_est   * SAMPLING_FREQUENCY
-            f_off_err  = tf.where(tx_ue,
-                        tf.square((f_off_hz - f_est_hz)/self.config.bandwidth), 0.0)
+            toa_err = tf.where(
+                tx_ue,
+                tf.square((toa - toa_est) / self.config.nprach_cp_duration),
+                0.0,
+            )
+            # CFO NMSE: convert both GT and estimate to Hz, then normalize by BW
+            # Ground-truth: ppm -> (norm by fs) -> Hz
+            f_off_hz = self.cfo.ppm2Foffnorm(cfo_ppm) * SAMPLING_FREQUENCY
+            # Estimate:
+            # - DL branch above scaled f_off_est to "normalized by fs" already.
+            # - Baseline returns CFO normalized by bandwidth.
+            f_est_hz = tf.where(
+                tf.equal(tf.constant(1 if self.system == 'dl' else 0), 1),
+                f_off_est * SAMPLING_FREQUENCY,
+                f_off_est * self.config.bandwidth,
+            )
+            f_off_err = tf.where(
+                tx_ue,
+                tf.square((f_off_hz - f_est_hz) / self.config.bandwidth),
+                0.0,
+            )
             # Compute the snr
             freq = sn.channel.subcarrier_frequencies(
                         self.config.nprach_dft_size, self.config.delta_f_ra)

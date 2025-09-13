@@ -1,39 +1,27 @@
 #!/usr/bin/env python3
 """
-Generate a valid weights.dat (pickle of Keras weights) for DeepNSynch without
-requiring Sionna/Scipy/NumPy at generation time.
+Generate weights for DeepNSynch in three formats:
+- weights.dat : pickle(list of numpy arrays)  [legacy-compatible]
+- weights.npz : name->array mapping            [safer / future-proof]
+- weights.h5  : Keras save_weights format      [standard]
 
-This script:
-- Stubs a minimal `sionna` module if missing (utils.log10 and PI)
-- Builds a dummy NPRACH generator exposing `config`, `seq_indices`, `freq_patterns`
-  with correct shapes for preamble format 0 (nprach_dft_size=48, 4 SG, 5 seq/SG)
-- Instantiates `synch.DeepNSynch`, runs a single forward pass on zeros to
-  initialize variables, then pickles `model.get_weights()` into weights.dat
-  at the project root.
-
-Resulting weights are random-initialized and only intended to satisfy
-loading/shape requirements (NOT trained).
+The script stubs a minimal `sionna` if missing so that model build succeeds
+without a full PHY install. It also builds a dummy NPRACH generator with
+correct shapes (format-0: DFT=48, 4 SG, 5 seq/SG).
 """
 from __future__ import annotations
-
-import os
-import sys
-import types
-import pickle
-import math
-from typing import Any
-
+import os, sys, types, pickle, math, json
+import numpy as np
 import tensorflow as tf
 
-# 0) Make project root importable if script is run from elsewhere
+# Project root
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-# 1) Stub minimal sionna if not installed
+# Try import sionna, else stub
 try:
     import sionna as sn  # type: ignore
-    # Validate required attributes
     assert hasattr(sn, "utils") and hasattr(sn.utils, "log10") and hasattr(sn, "PI")
 except Exception:
     sn = types.ModuleType("sionna")
@@ -46,7 +34,7 @@ except Exception:
     sn.PI = math.pi
     sys.modules["sionna"] = sn
 
-# 2) Dummy NPRACH generator with correct shapes for DeepNSynch
+# Dummy NPRACH generator (minimal API used by DeepNSynch)
 class _Cfg:
     @property
     def nprach_dft_size(self) -> int: return 48
@@ -71,24 +59,18 @@ class _DummyGen:
     @property
     def freq_patterns(self) -> tf.Tensor: return self._freq_patterns
 
-
 def _build_dummy_gen() -> _DummyGen:
     cfg = _Cfg()
-    # Numeric lengths at NPRACH bandwidth discretization (not fs):
-    # samples_per_seq = int(nprach_seq_duration * bandwidth) = 48
-    # samples_per_cp  = int(nprach_cp_duration  * bandwidth) = 12
     samples_per_seq = 48
     samples_per_cp  = 12
     samples_per_sg  = samples_per_cp + cfg.nprach_seq_per_sg * samples_per_seq  # 12 + 5*48 = 252
     num_sg = cfg.nprach_sg_per_rep * cfg.nprach_num_rep  # 4
 
-    # seq_indices: [num_seq, samples_per_seq] == [20, 48]
     base = tf.range(samples_per_seq, dtype=tf.int32)[tf.newaxis, :]  # [1,48]
     shifts = tf.range(num_sg, dtype=tf.int32) * samples_per_sg + samples_per_cp  # [4]
     shifts = tf.repeat(shifts, cfg.nprach_seq_per_sg)  # 20
     seq_indices = base + shifts[:, tf.newaxis]  # [20,48]
 
-    # freq_patterns: [num_sc, num_sg] in [0, dft_size)
     num_sc = cfg.nprach_num_sc
     dft = cfg.nprach_dft_size
     k = tf.range(num_sc, dtype=tf.int32)[:, tf.newaxis]        # [48,1]
@@ -97,39 +79,61 @@ def _build_dummy_gen() -> _DummyGen:
 
     return _DummyGen(cfg, seq_indices, freq_patterns)
 
-
-def main() -> int:
-    # Set deterministic seed for reproducibility of initial weights
-    tf.random.set_seed(42)
-
-    dummy = _build_dummy_gen()
-
-    # Import model after sionna stub is in place
-    from synch import DeepNSynch  # type: ignore
-
-    model = DeepNSynch(dummy)
-
-    # Compute input length in NPRACH bandwidth samples: T = 4 * (12 + 5*48) = 1008
-    cfg = dummy.config
+def _input_len(cfg: _Cfg) -> int:
     samples_per_seq = 48
     samples_per_cp  = 12
     samples_per_sg  = samples_per_cp + cfg.nprach_seq_per_sg * samples_per_seq
     num_sg = cfg.nprach_sg_per_rep * cfg.nprach_num_rep
-    T = num_sg * samples_per_sg
+    return num_sg * samples_per_sg  # 1008
 
-    # One forward pass on zeros to build variables
+def main() -> int:
+    tf.random.set_seed(42)
+
+    dummy = _build_dummy_gen()
+
+    # Import after stub is set
+    from synch import DeepNSynch
+
+    model = DeepNSynch(dummy)
+
+    # One forward pass to build variables
+    T = _input_len(dummy.config)
     y = tf.complex(tf.zeros([1, T], tf.float32), tf.zeros([1, T], tf.float32))
     _ = model(y)
 
-    # Serialize weights to project root
-    weights = model.get_weights()
-    out_path = os.path.join(ROOT, "weights.dat")
-    with open(out_path, "wb") as f:
-        pickle.dump(weights, f)
+    # Collect weights
+    weights_list = model.get_weights()
+    assert len(weights_list) > 0, "No weights collected from model."
 
-    print(f"Wrote {out_path} with {len(weights)} arrays; input_len={T}")
+    # (A) Legacy pickle(list) -> weights.dat
+    dat_path = os.path.join(ROOT, "weights.dat")
+    with open(dat_path, "wb") as f:
+        pickle.dump(weights_list, f)
+
+    # (B) Name-based -> weights.npz  (safer for future)
+    # Use tf.Variable names for stable mapping (e.g., '.../kernel:0')
+    name_to_arr = {}
+    for w, v in zip(weights_list, model.weights):
+        name_to_arr[v.name] = w
+    npz_path = os.path.join(ROOT, "weights.npz")
+    np.savez_compressed(npz_path, **name_to_arr)
+
+    # (C) Keras H5 -> weights.h5
+    h5_path = os.path.join(ROOT, "weights.h5")
+    model.save_weights(h5_path)
+
+    # Small meta (for debugging offline)
+    meta = {
+        "num_tensors": len(weights_list),
+        "input_len": T,
+        "npz_keys": sorted(list(name_to_arr.keys()))[:10],
+    }
+    with open(os.path.join(ROOT, "weights_meta.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+
+    print(f"[OK] Wrote:\n - {dat_path}\n - {npz_path}\n - {h5_path}")
+    print(f"[INFO] Tensors: {len(weights_list)}, input_len={T}")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

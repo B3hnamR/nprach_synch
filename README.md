@@ -51,14 +51,14 @@ We recommend Ubuntu 20.04 (or WSL2 on Windows), Python 3.8, and TensorFlow 2.8.
 
 Pinned dependencies are provided in `requirements.txt` (Python 3.8 target):
 - tensorflow==2.8.4
-- sionna==0.14.0
+- sionna==0.13.0
 - numpy==1.22.4
 - scipy==1.8.1
 - matplotlib==3.5.3
 - jupyter==1.0.0
 - ipympl==0.9.3 (optional for interactive plots)
-- protobuf==3.20.3
-- gdown==4.7.1 (for weights download script)
+- protobuf==3.19.6
+- gdown==4.7.1 (optional; not required if generating weights locally)
 
 ## Quickstart
 1) Create and activate a virtual environment (Python 3.8):
@@ -76,10 +76,13 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3) (Optional, for DeepNSynch evaluation) Download model weights:
+3) (Optional, for DeepNSynch) Prepare model weights:
 ```
-python scripts/download_weights.py
-# downloads weights.dat to the project root
+# Option A: Use your own weights file (place at project root as weights.dat)
+# Option B: Generate a shape‑compatible weights file locally
+python scripts/generate_weights.py
+# Optionally verify weights load and a dummy forward pass
+python scripts/verify_weights.py weights.dat
 ```
 
 4) Launch Jupyter:
@@ -127,7 +130,9 @@ Heuristics:
 - `results/`: Output artifacts created by Evaluate.ipynb
 - `Train.ipynb`: Training loop for DeepNSynch
 - `Evaluate.ipynb`: Benchmarks DeepNSynch vs baseline and reproduces paper plots
-- `scripts/download_weights.py`: Fetches DeepNSynch weights
+- `scripts/generate_weights.py`: Builds a minimal DeepNSynch and writes weights in .dat/.npz/.h5
+- `scripts/verify_weights.py`: Loads weights and runs a dummy forward for sanity
+- `scripts/train_deepnsynch.py`: Warm‑build and save weights (extendable to real training)
 - `CHANGELOG.md`: All changes and rationales
 
 ## Notebooks: Train and Evaluate
@@ -160,9 +165,9 @@ If there is a version mismatch or Sionna/TF setup issue, this test will fail ear
 
 ## Troubleshooting
 - FileNotFoundError: `weights.dat`
-  - Run `python scripts/download_weights.py` and ensure `weights.dat` is in the repository root.
+  - Place your weights at project root, or run `python scripts/generate_weights.py`, then verify with `python scripts/verify_weights.py weights.dat`.
 - Sionna import or API errors
-  - Use the pinned `sionna==0.14.0` with `tensorflow==2.8.4` as specified.
+  - Use the pinned `sionna==0.13.0` with `tensorflow==2.8.4` as specified.
 - XLA Unimplemented/Unsupported
   - Keep `jit_compile=False` (default). XLA is optional and environment-dependent.
 - Matplotlib widget errors

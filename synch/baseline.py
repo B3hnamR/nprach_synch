@@ -146,6 +146,12 @@ class NPRACHSynch(Layer):
         freq_hop_steps = self._nprach_gen.freq_hop_steps
         max_hop = tf.reduce_max(tf.abs(freq_hop_steps))
         v_len = max_hop*2+1
+        # Guard against invalid FFT padding (requires fft_size >= v_len)
+        tf.debugging.assert_greater_equal(
+            tf.constant(self._fft_size, tf.int32),
+            tf.cast(v_len, tf.int32),
+            message="fft_size must be >= hop-spectrum length (v_len)"
+        )
         v = tf.zeros([config.nprach_num_sc*v_len, batch_size], tf.complex64)
         v_indices = freq_hop_steps + max_hop
         v_indices += tf.expand_dims(tf.range(config.nprach_num_sc)*v_len,
@@ -159,8 +165,14 @@ class NPRACHSynch(Layer):
 
         # v in frequency domain
         # [batch size, num preamble, fft size]
-        v_freq = tf.concat([v, tf.zeros([batch_size, config.nprach_num_sc,
-                            self._fft_size - v_len], tf.complex64)], axis=-1)
+        v_freq = tf.concat([
+                v,
+                tf.zeros([
+                    batch_size,
+                    config.nprach_num_sc,
+                    self._fft_size - v_len
+                ], tf.complex64)
+            ], axis=-1)
         v_freq = tf.signal.fft(v_freq)\
             /tf.complex(tf.constant(self._fft_size, tf.float32), 0.0)
         # Max frequency response
@@ -263,6 +275,12 @@ class NPRACHSynch(Layer):
             freq_hop_steps = self._nprach_gen.freq_hop_steps
             max_hop = tf.reduce_max(tf.abs(freq_hop_steps))
             v_len = max_hop*2+1
+            # Guard against invalid FFT padding (requires fft_size >= v_len)
+            tf.debugging.assert_greater_equal(
+                tf.constant(self._fft_size, tf.int32),
+                tf.cast(v_len, tf.int32),
+                message="fft_size must be >= hop-spectrum length (v_len)"
+            )
             v = tf.zeros([self._config.nprach_num_sc*v_len, batch_size],
                             tf.complex64)
             v_indices = freq_hop_steps + max_hop

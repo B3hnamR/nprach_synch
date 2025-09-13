@@ -1,5 +1,24 @@
-.vscode/
+# Virtual environments
+.venv/
+
+# Python cache
 __pycache__/
-.pytest_cache/
-.ipynb_checkpoints
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+jupyter.log
+nohup.out
+
+# Results/artifacts
+results/*.png
+results/*.pdf
 weights.dat
+weights.npz
+weights.h5
+weights_meta.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.swp

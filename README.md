@@ -129,6 +129,7 @@ Heuristics:
 - `parameters.py`: Global parameters (batch sizes, CFO ranges, etc.)
 - `results/`: Output artifacts created by Evaluate.ipynb
 - `Train.ipynb`: Training loop for DeepNSynch
+- `Evaluate_prepared.ipynb`: Ready-to-run baseline/DL curves with saved figures
 - `Evaluate.ipynb`: Benchmarks DeepNSynch vs baseline and reproduces paper plots
 - `scripts/generate_weights.py`: Builds a minimal DeepNSynch and writes weights in .dat/.npz/.h5
 - `scripts/verify_weights.py`: Loads weights and runs a dummy forward for sanity
@@ -162,6 +163,11 @@ You can quickly verify TF/Sionna compatibility without weights using the baselin
 - Set system to baseline (`E2E('baseline', False, ...)`) with `pfa=0.999`
 - Use a small batch (`BATCH_SIZE_EVAL`) and `max_cfo_ppm=10., ue_prob=0.5`
 If there is a version mismatch or Sionna/TF setup issue, this test will fail early.
+
+Alternatively, run the CLI smoke test:
+```
+python scripts/smoke_test.py
+```
 
 ## Troubleshooting
 - FileNotFoundError: `weights.dat`

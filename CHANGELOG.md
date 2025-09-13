@@ -68,3 +68,10 @@
   print('OK:', len(out))
   PY
   ```
+
+
+## 2025-09-13
+- Fix: define f_off in E2E eval return path to avoid UnboundLocalError and align CFO NMSE units.
+- Docs: Update README (weights generation/verify, Evaluate_prepared.ipynb, smoke_test).
+- Add: scripts/smoke_test.py; .gitignore for artifacts; remove stray .docx and old results .res files.
+

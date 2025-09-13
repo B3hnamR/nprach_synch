@@ -304,6 +304,9 @@ class E2E(Model):
                 tf.square((toa - toa_est) / self.config.nprach_cp_duration),
                 0.0,
             )
+            # Also expose ground-truth CFO normalized by sampling frequency
+            # for downstream masking/plotting in notebooks
+            f_off = self.cfo.ppm2Foffnorm(cfo_ppm)
             # CFO NMSE: convert both GT and estimate to Hz, then normalize by BW
             # Ground-truth: ppm -> (norm by fs) -> Hz
             f_off_hz = self.cfo.ppm2Foffnorm(cfo_ppm) * SAMPLING_FREQUENCY

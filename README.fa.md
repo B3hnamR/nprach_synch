@@ -331,3 +331,102 @@ print('OK:', len(out))
 - پیاده‌سازی اصلی و مراجع در بالا آمده است.
 
 این کار تحت [مجوز Nvidia](LICENSE.txt) منتشر می‌شود.
+# راهنمای پروژه NB‑IoT NPRACH (فارسی و خودمونی)
+
+<div dir="rtl" style="text-align:right">
+
+## خلاصه
+این ریپو دو مسیر همگام‌سازی برای سیگنال شروع اتصال NB‑IoT (NPRACH) دارد:
+- Baseline (تحلیلی/کلاسیک) → بدون نیاز به وزن (weight) و همین حالا قابل اجرا.
+- DeepNSynch (یادگیری عمیق) → برای نتایج واقعی نیاز به weight آموزش‌داده.
+
+ما شبیه‌سازی انتها‑به‑انتها داریم: تولید NPRACH، کانال 3GPP UMi (با Sionna)، و ارزیابی/رسم خروجی‌ها.
+
+نکته مهم: چون وزن‌های مقاله در دسترس نیست، یک weight «سازگار/آزمایشی» می‌توان ساخت تا فقط مدل DL اجرا شود؛ ولی نمودارهای DL با این وزن‌ها قابل استناد نیستند. برای خروجی تحویلی و مطمئن، از Baseline استفاده کنید.
+
+## ویژگی‌ها
+- پیاده‌سازی موج NPRACH (پیکربندی 0)
+- شبیه‌سازی UMi با Sionna
+- دو روش همگام‌سازی: Baseline و DeepNSynch
+- فایل‌های نوت‌بوک برای آموزش/ارزیابی + اسکریپت‌های کمکی
+
+## پیش‌نیازها
+- Ubuntu 20.04/22.04 یا WSL2 (روی ویندوز)
+- Python 3.8
+- GPU اختیاری (CPU هم جواب می‌دهد؛ فقط کندتر است)
+
+وابستگی‌های پین‌شده (در `requirements.txt`):
+- tensorflow==2.8.4
+- sionna==0.13.0
+- numpy==1.22.4, scipy==1.8.1, matplotlib==3.5.3, jupyter==1.0.0, ipympl==0.9.3
+- protobuf==3.19.6
+- gdown==4.7.1 (اختیاری)
+
+## شروع سریع
+```
+python3.8 -m venv .venv && source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install --upgrade --force-reinstall -r requirements.txt
+```
+اجرای Jupyter (روی سرور):
+```
+pip install jupyter ipykernel
+python -m ipykernel install --user --name nprach_synch --display-name "Python 3.8 (nprach_synch)"
+jupyter notebook --ip=0.0.0.0 --port 8888 --no-browser
+```
+
+## پیکربندی خودکار اجرا (جدید)
+در ابتدای نوت‌بوک اضافه کنید:
+```
+from runtime.auto_config import get_system_profile, recommend_settings, apply_tf_settings, summarize
+prof = get_system_profile(); rec = recommend_settings(prof, mode='eval'); apply_tf_settings(rec)
+print(summarize(prof, rec))
+```
+این کار batch، نخ‌ها، mixed precision و … را معقول تنظیم می‌کند (XLA پیش‌فرض خاموش است).
+
+## ساختار پروژه
+- `nprach/`: موج NPRACH
+- `synch/`: الگوریتم‌ها (Baseline, DeepNSynch)
+- `e2e/`: مدل انتها‑به‑انتها (تولید، کانال، همگام‌سازی)
+- `runtime/auto_config.py`: تنظیمات خودکار اجرا
+- `parameters.py`: پارامترهای کلی (batch، بازه CFO و …)
+- `Train.ipynb`, `Evaluate.ipynb`, `Evaluate_prepared.ipynb`
+- `scripts/`: ابزارهای وزن/آزمون (generate/verify/train/smoke_test)
+
+## نوت‌بوک‌ها (آموزش و ارزیابی)
+- آموزش (Train.ipynb): `jit_compile=False` بماند مگر محیطتان سازگار باشد. بهتر است از auto_config برای انتخاب batch/threads استفاده کنید.
+- ارزیابی (Evaluate*.ipynb):
+  - Baseline بدون وزن اجرا می‌شود.
+  - برای DeepNSynch باید `weights.dat` در ریشه باشد (وزن واقعی یا آزمایشی).
+  - `Evaluate_prepared.ipynb` نسخه آماده برای تولید چهار شکل اصلی و ذخیره PNG/PDF در `results/` است.
+
+## CPU/GPU و XLA
+- هشدارهای CUDA/NUMA روی CPU بی‌اهمیت است.
+- XLA پیش‌فرض خاموش است؛ فقط اگر کاملاً سازگار هستید روشن کنید.
+
+## آزمون دود (Baseline)
+سریع‌ترین تست سازگاری محیط:
+```
+python scripts/smoke_test.py
+```
+
+## تولید/بارگذاری وزن‌ها (DL – اختیاری)
+ساخت وزن آزمایشی (برای اجرای گراف، نه نتایج مقاله):
+```
+python scripts/generate_weights.py
+python scripts/verify_weights.py weights.dat   # اگر موجود بود
+```
+سپس در ارزیابی DL، قبل از استفاده، مدل را build کنید و وزن را set کنید.
+
+## عیب‌یابی
+- `ModuleNotFoundError: parameters`: Jupyter را از ریشه پروژه اجرا کنید (وارد کردن پارامترها در کد مقاوم‌سازی شده است).
+- کندی/کمبود RAM روی CPU: `BATCH/RUNS` را کم کنید و برای Baseline از `NPRACH_NUM_SC=24` استفاده کنید.
+- نسخه‌ها: طبق `requirements.txt` (TF 2.8.4 + Sionna 0.13.0). اگر GPU ندارید: `pip install tensorflow-cpu==2.8.4`.
+
+## منابع
+[A] https://arxiv.org/abs/2205.10805  — Deep Learning‑Based Synchronization for Uplink NB‑IoT
+
+## مجوز
+مطابق LICENSE.txt (LicenseRef‑NvidiaProprietary)
+
+</div>

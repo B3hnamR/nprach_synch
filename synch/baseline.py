@@ -19,11 +19,17 @@ import tensorflow as tf
 from tensorflow.keras.layers import Layer
 import sionna as sn
 import numpy as np
+from pathlib import Path
+from typing import Optional
 
 
 class NPRACHSynch(Layer):
     # pylint: disable=line-too-long
-    r"""NPRACHSynch(nprach_gen, fft_size, pfa, no)
+    r"""NPRACHSynch(nprach_gen, fft_size, pfa, no, *,
+                        threshold_batch_size=10000,
+                        threshold_num_iter=10,
+                        threshold_seed=None,
+                        threshold_cache_path=None)
 
     Implements NPRACH detection and synchronization algorithm from [CHO].
 
@@ -45,7 +51,24 @@ class NPRACHSynch(Layer):
         Target probability of false positive.
 
     no : float
-        Noise power spectral density
+        Noise power spectral density.
+
+    threshold_batch_size : int, optional
+        Monte-Carlo batch size used when deriving detection thresholds. Defaults
+        to 10000.
+
+    threshold_num_iter : int, optional
+        Number of Monte-Carlo iterations aggregated for threshold estimation.
+        Defaults to 10.
+
+    threshold_seed : int or None, optional
+        Seed for the random generator used in the noise-only simulations. When
+        provided the thresholds become fully reproducible.
+
+    threshold_cache_path : str or pathlib.Path, optional
+        Optional cache file (.npz or .npy). If supplied and present on disk, the
+        precomputed thresholds are loaded; otherwise the freshly computed values
+        are written to that path.
 
     Input
     ------
@@ -69,7 +92,10 @@ class NPRACHSynch(Layer):
         corresponding entry, it contains 0.
     """
 
-    def __init__(self, nprach_gen, fft_size, pfa, no):
+    def __init__(self, nprach_gen, fft_size, pfa, no, *,
+                 threshold_batch_size: int = 10000, threshold_num_iter: int = 10,
+                 threshold_seed: Optional[int] = None,
+                 threshold_cache_path: Optional[Path] = None):
         """Initialize detector and pre-compute detection thresholds.
 
         Parameters
@@ -82,6 +108,16 @@ class NPRACHSynch(Layer):
             Target probability of false alarm for threshold design.
         no : float
             Noise power spectral density.
+        threshold_batch_size : int, optional
+            Number of samples per Monte-Carlo batch when estimating thresholds.
+        threshold_num_iter : int, optional
+            Number of Monte-Carlo iterations to aggregate for the estimation.
+        threshold_seed : int or None, optional
+            If provided, seeds the internal random generator for deterministic
+            thresholds.
+        threshold_cache_path : str or pathlib.Path, optional
+            Optional cache file. When the path exists, thresholds are loaded from
+            disk; otherwise the computed array is persisted to that file.
         """
         super().__init__()
 
@@ -89,7 +125,30 @@ class NPRACHSynch(Layer):
         self._config = nprach_gen.config
         self._fft_size = fft_size
 
-        self._build_detection_threshold(pfa, no)
+        self._threshold_batch_size = int(threshold_batch_size)
+        self._threshold_num_iter = int(threshold_num_iter)
+        self._threshold_seed = None if threshold_seed is None else int(threshold_seed)
+        self._threshold_cache_path = (
+            Path(threshold_cache_path).expanduser()
+            if threshold_cache_path is not None
+            else None
+        )
+        if self._threshold_cache_path is not None and self._threshold_cache_path.suffix == "":
+            self._threshold_cache_path = self._threshold_cache_path.with_suffix(".npz")
+
+        if self._threshold_batch_size <= 0:
+            raise ValueError("threshold_batch_size must be positive")
+        if self._threshold_num_iter <= 0:
+            raise ValueError("threshold_num_iter must be positive")
+
+        self._build_detection_threshold(
+            pfa,
+            no,
+            batch_size=self._threshold_batch_size,
+            num_iter=self._threshold_num_iter,
+            seed=self._threshold_seed,
+            cache_path=self._threshold_cache_path,
+        )
 
     def call(self, y):
         """Run baseline NPRACH detection, ToA and CFO estimation.
@@ -230,59 +289,48 @@ class NPRACHSynch(Layer):
 
         return tx_ue_hat, toa_est, f_off_est
 
-    def _build_detection_threshold(self, pfa, no):
+
+    def _build_detection_threshold(self, pfa, no, *, batch_size: int,
+                                     num_iter: int, seed: Optional[int],
+                                     cache_path: Optional[Path]):
         # pylint: disable=line-too-long
-        """Empirically derive detection thresholds under noise-only hypothesis.
+        """Empirically derive detection thresholds under noise-only hypothesis."""
+        if cache_path is not None and cache_path.is_file():
+            if cache_path.suffix == '.npz':
+                with np.load(cache_path, allow_pickle=False) as data:
+                    tau = data['tau']
+            else:
+                tau = np.load(cache_path, allow_pickle=False)
+            self._tau = tf.constant(tau, tf.float32)
+            return
 
-        Parameters
-        ----------
-        pfa : float
-            Target probability of false positive. Must be in (0,1).
-        no : float
-            Noise power spectral density.
-
-        Notes
-        -----
-        The statistic Xmax is simulated from pure noise for each preamble and
-        its pfa-quantile is taken as threshold.
-        """
-        batch_size = 10000
-        num_it = 10
         noise_real_dev = tf.cast(tf.sqrt(0.5*no), tf.float32)
-        x = []
-        for _ in range(num_it):
-            # Generate white noise as received signal
-            y_pr_real = tf.random.normal([batch_size,
-                self._config.nprach_num_sc,
-                self._config.nprach_num_rep*self._config.nprach_sg_per_rep],
-                                            stddev=noise_real_dev)
-            y_pr_im = tf.random.normal([batch_size,
-                self._config.nprach_num_sc,
-                self._config.nprach_num_rep*self._config.nprach_sg_per_rep],
-                                            stddev=noise_real_dev)
+        if seed is not None:
+            rng = tf.random.Generator.from_seed(int(seed))
+        else:
+            rng = tf.random.Generator.from_non_deterministic_state()
+
+        samples_per_iter = []
+        for _ in range(num_iter):
+            shape = [batch_size,
+                     self._config.nprach_num_sc,
+                     self._config.nprach_num_rep*self._config.nprach_sg_per_rep]
+            y_pr_real = rng.normal(shape, dtype=tf.float32) * noise_real_dev
+            y_pr_im = rng.normal(shape, dtype=tf.float32) * noise_real_dev
             y_pr = tf.complex(y_pr_real, y_pr_im)
-            # Differential processing of neighboring SGs
-            # Build Y_{m+1}
-            # Extract for every possible preamble the sequence of SGs
-            # [batch_size, num preamble, num_sg]
             y_pr_del = tf.roll(y_pr, shift=-1, axis=2)
-            # Differential processing of neighboring SGs
-            # [batch_size, num preamble, num_sg-1]
             z = y_pr*tf.math.conj(y_pr_del)
-            z = z[:,:,:-1]
-            # Constructing vector v indexed by the hopping steps
-            # [batch size, num preamble, max freq hop]
+            z = z[:, :, :-1]
             freq_hop_steps = self._nprach_gen.freq_hop_steps
             max_hop = tf.reduce_max(tf.abs(freq_hop_steps))
-            v_len = max_hop*2+1
-            # Guard against invalid FFT padding (requires fft_size >= v_len)
+            v_len = max_hop*2 + 1
             tf.debugging.assert_greater_equal(
                 tf.constant(self._fft_size, tf.int32),
                 tf.cast(v_len, tf.int32),
-                message="fft_size must be >= hop-spectrum length (v_len)"
+                message='fft_size must be >= hop-spectrum length (v_len)'
             )
             v = tf.zeros([self._config.nprach_num_sc*v_len, batch_size],
-                            tf.complex64)
+                         tf.complex64)
             v_indices = freq_hop_steps + max_hop
             v_indices += tf.expand_dims(
                 tf.range(self._config.nprach_num_sc)*v_len, axis=-1)
@@ -290,25 +338,31 @@ class NPRACHSynch(Layer):
             z_ = tf.transpose(z, [1, 2, 0])
             z_ = tf.reshape(z_, [-1, batch_size])
             v = tf.tensor_scatter_nd_add(v, v_indices, z_)
-            v = tf.reshape(v, [self._config.nprach_num_sc, v_len,
-                                batch_size])
+            v = tf.reshape(v, [self._config.nprach_num_sc, v_len, batch_size])
             v = tf.transpose(v, [2, 0, 1])
-            # Compute Xmax
-            v_freq = tf.concat([v,
-                                tf.zeros([batch_size,
-                                            self._config.nprach_num_sc,
-                                            self._fft_size - v_len],
-                                            tf.complex64)], axis=-1)
-            v_freq = tf.signal.fft(v_freq)\
-                /tf.complex(tf.constant(self._fft_size, tf.float32), 0.0)
+            v_freq = tf.concat([
+                v,
+                tf.zeros([
+                    batch_size,
+                    self._config.nprach_num_sc,
+                    self._fft_size - v_len
+                ], tf.complex64)
+            ], axis=-1)
+            v_freq = tf.signal.fft(v_freq) / tf.complex(tf.constant(self._fft_size, tf.float32), 0.0)
             v_freq_abs = tf.abs(v_freq)
             k_max = tf.argmax(v_freq_abs, axis=-1)
             x_max = tf.gather(v_freq_abs, k_max, batch_dims=2)
-            x_max = x_max.numpy()
-            x.append(x_max)
-        x = np.concatenate(x, axis=0)
-        tau = np.quantile(x, pfa, axis=0)
+            samples_per_iter.append(x_max.numpy())
+        x = np.concatenate(samples_per_iter, axis=0)
+        tau = np.quantile(x, pfa, axis=0).astype(np.float32)
         self._tau = tf.constant(tau, tf.float32)
+
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            if cache_path.suffix == '.npz':
+                np.savez_compressed(cache_path, tau=tau)
+            else:
+                np.save(cache_path, tau)
 
     def _extract_preamble_sg(self, y, indices):
         # pylint: disable=line-too-long

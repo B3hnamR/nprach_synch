@@ -62,10 +62,10 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3) (اختیاری، برای ارزیابی DeepNSynch) دانلود وزن‌ها:
+3) (اختیاری، برای ارزیابی DeepNSynch) تولید وزن‌ها:
 ```
-python scripts/download_weights.py
-# فایل weights.dat در ریشه‌ی پروژه قرار می‌گیرد
+python scripts/generate_weights.py
+python scripts/verify_weights.py weights.dat  # اختیاری: صحت فایل تولید شده را بررسی کنید
 ```
 
 4) اجرای Jupyter:
@@ -113,7 +113,7 @@ def sample_sys_snr(...):
 - `results/`: نتایج خروجی ارزیابی
 - `Train.ipynb`: آموزش DeepNSynch
 - `Evaluate.ipynb`: ارزیابی DeepNSynch و baseline و بازتولید نمودارهای مقاله
-- `scripts/download_weights.py`: دانلود وزن‌های مدل
+- `scripts/generate_weights.py`: تولید وزن‌های مدل
 - `CHANGELOG.md`: ثبت تغییرات با دلایل
 
 ## نوت‌بوک‌ها: آموزش و ارزیابی
@@ -146,7 +146,7 @@ def my_fn(...):
 
 ## رفع اشکال
 - FileNotFoundError برای `weights.dat`:
-  - `python scripts/download_weights.py` را اجرا کنید و وجود فایل در ریشه پروژه را بررسی کنید.
+  - `python scripts/generate_weights.py` را اجرا کنید (در صورت نیاز با `python scripts/verify_weights.py weights.dat` خروجی را تست کنید) و وجود فایل در ریشه پروژه را بررسی کنید.
 - خطا یا ناسازگاری Sionna:
   - از نسخه‌های پین‌شده (`sionna==0.14.0` با `tensorflow==2.8.4`) استفاده کنید.
 - خطاهای XLA (Unimplemented/Unsupported):

@@ -38,7 +38,7 @@ except ModuleNotFoundError:
 class E2E(Model):
     # pylint: disable=line-too-long
     """
-    E2E(system, training, nprach_num_rep, nprach_num_sc, fft_size=256, pfa=0.999)
+    E2E(system, training, nprach_num_rep, nprach_num_sc, fft_size=256, pfa=1e-3)
 
     Model for implementing the end-to-end model. This model uses the 3GPP UMi
     channel model with CFO, and is used for both training and evaluating the
@@ -70,7 +70,7 @@ class E2E(Model):
     pfa : float
         Target probability of false positive for the baseline. Must be in (0,1).
         Unused by the deep learning method.
-        Defaults to 0.999.
+        Defaults to 1e-3.
 
     Input
     ------
@@ -151,7 +151,7 @@ class E2E(Model):
                     nprach_num_rep,
                     nprach_num_sc,
                     fft_size=256,
-                    pfa=0.999):
+                    pfa=1e-3):
         super().__init__()
 
         assert system in ('baseline', 'dl')
@@ -302,6 +302,11 @@ class E2E(Model):
                 MAX_CFO_TRAIN = self.cfo.ppm2Foffnorm(MAX_CFO_PPM_TRAIN)
                 f_off_est = f_off_est*MAX_CFO_TRAIN
                 tx_ue_hat = tf.greater(tf.sign(tx_ue_hat), 0.0)
+            if max_cfo_ppm is None:
+                raise ValueError('max_cfo_ppm must be provided when training=False')
+            max_cfo_norm = self.cfo.ppm2Foffnorm(
+                tf.convert_to_tensor(max_cfo_ppm, dtype=cfo_ppm.dtype)
+            )
             # Detection error rate
             tx_ue_float = tf.cast(tx_ue, tf.float32)
             tx_ue_hat_float = tf.cast(tx_ue_hat, tf.float32)
@@ -316,10 +321,10 @@ class E2E(Model):
             )
             # Also expose ground-truth CFO normalized by sampling frequency
             # for downstream masking/plotting in notebooks
-            f_off = self.cfo.ppm2Foffnorm(cfo_ppm)
+            f_off_norm = self.cfo.ppm2Foffnorm(cfo_ppm)
             # CFO NMSE: convert both GT and estimate to Hz, then normalize by BW
             # Ground-truth: ppm -> (norm by fs) -> Hz
-            f_off_hz = self.cfo.ppm2Foffnorm(cfo_ppm) * SAMPLING_FREQUENCY
+            f_off_hz = f_off_norm * tf.cast(SAMPLING_FREQUENCY, f_off_norm.dtype)
             # Estimate:
             # - DL branch above scaled f_off_est to "normalized by fs" already.
             # - Baseline returns CFO normalized by bandwidth.
@@ -339,4 +344,14 @@ class E2E(Model):
             h_freq = sn.channel.cir_to_ofdm_channel(freq, a, tau)[:,0,0,:,0,:,:]
             h_sq = tf.reduce_mean(tf.square(tf.abs(h_freq)), axis=(-1,-2))
             snr = tx_power*h_sq/self.no
-            return snr, toa, f_off, ue_prob, fpr, fnr, toa_err, f_off_err
+            toa_out = tf.where(
+                tx_ue,
+                toa / self.config.nprach_cp_duration,
+                0.0,
+            )
+            f_off_out = tf.where(
+                tx_ue,
+                tf.math.divide_no_nan(f_off_norm, max_cfo_norm),
+                0.0,
+            )
+            return snr, toa_out, f_off_out, ue_prob, fpr, fnr, toa_err, f_off_err

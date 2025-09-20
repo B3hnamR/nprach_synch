@@ -48,7 +48,7 @@ class NPRACHSynch(Layer):
         size used for the NPRACH waveform on the transmitter side.
 
     pfa : float
-        Target probability of false positive.
+        Target probability of false positive (false alarm), must be in (0,1).
 
     no : float
         Noise power spectral density.
@@ -140,9 +140,12 @@ class NPRACHSynch(Layer):
             raise ValueError("threshold_batch_size must be positive")
         if self._threshold_num_iter <= 0:
             raise ValueError("threshold_num_iter must be positive")
+        if not (0.0 < pfa < 1.0):
+            raise ValueError('pfa must be in (0, 1)')
+        self._pfa = float(pfa)
 
         self._build_detection_threshold(
-            pfa,
+            self._pfa,
             no,
             batch_size=self._threshold_batch_size,
             num_iter=self._threshold_num_iter,
@@ -295,14 +298,17 @@ class NPRACHSynch(Layer):
                                      cache_path: Optional[Path]):
         # pylint: disable=line-too-long
         """Empirically derive detection thresholds under noise-only hypothesis."""
+        pfa = float(pfa)
+
         if cache_path is not None and cache_path.is_file():
             if cache_path.suffix == '.npz':
                 with np.load(cache_path, allow_pickle=False) as data:
                     tau = data['tau']
-            else:
-                tau = np.load(cache_path, allow_pickle=False)
-            self._tau = tf.constant(tau, tf.float32)
-            return
+                    cached_pfa = data.get('pfa')
+                    if cached_pfa is not None and np.isclose(float(cached_pfa), pfa, rtol=1e-6, atol=1e-8):
+                        self._tau = tf.constant(tau, tf.float32)
+                        return
+            # Legacy caches without metadata are ignored to avoid stale thresholds.
 
         noise_real_dev = tf.cast(tf.sqrt(0.5*no), tf.float32)
         if seed is not None:
@@ -354,15 +360,18 @@ class NPRACHSynch(Layer):
             x_max = tf.gather(v_freq_abs, k_max, batch_dims=2)
             samples_per_iter.append(x_max.numpy())
         x = np.concatenate(samples_per_iter, axis=0)
-        tau = np.quantile(x, pfa, axis=0).astype(np.float32)
+        eps = np.finfo(np.float32).eps
+        tail_quantile = np.clip(1.0 - pfa, eps, 1.0 - eps)
+        tau = np.quantile(x, tail_quantile, axis=0).astype(np.float32)
         self._tau = tf.constant(tau, tf.float32)
 
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             if cache_path.suffix == '.npz':
-                np.savez_compressed(cache_path, tau=tau)
+                np.savez_compressed(cache_path, tau=tau, pfa=np.array(pfa, dtype=np.float32))
             else:
                 np.save(cache_path, tau)
+
 
     def _extract_preamble_sg(self, y, indices):
         # pylint: disable=line-too-long

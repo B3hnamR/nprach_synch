@@ -53,7 +53,7 @@ Shortcuts:
     source .venv/bin/activate && python - << 'PY'
 from e2e import E2E
 BATCH=16
-sys = E2E('baseline', False, nprach_num_rep=1, nprach_num_sc=24, fft_size=256, pfa=0.999)
+sys = E2E('baseline', False, nprach_num_rep=1, nprach_num_sc=24, fft_size=256, pfa=1e-3)
 out = sys(BATCH, max_cfo_ppm=10., ue_prob=0.5)
 print('OK:', len(out))
 PY

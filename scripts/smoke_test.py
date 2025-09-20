@@ -15,7 +15,7 @@ except Exception as e:
 def main() -> int:
     BATCH = 8
     try:
-        sysm = E2E('baseline', False, nprach_num_rep=1, nprach_num_sc=24, fft_size=256, pfa=0.999)
+        sysm = E2E('baseline', False, nprach_num_rep=1, nprach_num_sc=24, fft_size=256, pfa=1e-3)
         out = sysm(BATCH, max_cfo_ppm=10.0, ue_prob=0.5)
         if not isinstance(out, (tuple, list)) or len(out) != 8:
             print("[ERR] Unexpected output shape from E2E baseline:", type(out))

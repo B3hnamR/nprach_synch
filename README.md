@@ -160,7 +160,7 @@ def my_fn(...):
 
 ## Smoke Test (baseline-only)
 You can quickly verify TF/Sionna compatibility without weights using the baseline path in `Evaluate.ipynb`:
-- Set system to baseline (`E2E('baseline', False, ...)`) with `pfa=0.999`
+- Set system to baseline (`E2E('baseline', False, ...)`) with `pfa=1e-3`
 - Use a small batch (`BATCH_SIZE_EVAL`) and `max_cfo_ppm=10., ue_prob=0.5`
 If there is a version mismatch or Sionna/TF setup issue, this test will fail early.
 

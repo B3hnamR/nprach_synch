@@ -414,6 +414,7 @@ class NPRACH(Layer):
         """
 
         batch_size = tf.shape(tx_power)[0]
+        tx_power = tf.cast(tx_power, tf.float32)
 
         # NRPACH config
         config = self._config
@@ -446,5 +447,7 @@ class NPRACH(Layer):
         # [batch_size, preamble_length = number of SGs*num_time_steps_sg,
         #   max num users]
         s = tf.reshape(s, [1, -1, config.nprach_num_sc])
-        s = tf.expand_dims(tf.complex(tf.sqrt(tx_power), 0.0), axis=1)*s
+        amplitude = tf.sqrt(tx_power)
+        carrier = tf.complex(amplitude, tf.zeros_like(amplitude))
+        s = tf.expand_dims(carrier, axis=1)*s
         return s
